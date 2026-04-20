@@ -1,6 +1,6 @@
 # ropey — Injected Bugs
 
-Total mutations: 4
+Total mutations: 6
 
 ## Bug Index
 
@@ -10,6 +10,8 @@ Total mutations: 4
 | 2 | `rope_eq_utf8_boundary` | `rope_eq_utf8_boundary_cc516d5_1` | `patches/rope_eq_utf8_boundary_cc516d5_1.patch` | `patch` | `cc516d54037a2f98785dc8cc77d6e6a6201502c3` |
 | 3 | `rope_hash_chunk_boundary` | `rope_hash_chunk_boundary_fef5be9_1` | `patches/rope_hash_chunk_boundary_fef5be9_1.patch` | `patch` | `fef5be9c52b3bab9d2e4d25fbb66e05ff5ddb8ca` |
 | 4 | `utf16_code_unit_conversion` | `utf16_code_unit_conversion_c0af16b_1` | `patches/utf16_code_unit_conversion_c0af16b_1.patch` | `patch` | `c0af16bdf5fef1a8f0a29b13a5dd0d44dd16c7a7` |
+| 5 | `rope_builder_default_empty_stack` | `rope_builder_default_empty_stack_dfcac8b_1` | `patches/rope_builder_default_empty_stack_dfcac8b_1.patch` | `patch` | `dfcac8b19ee571a2a399e189c12b2a10663ce464` |
+| 6 | `slice_crlf_split_end_info` | `slice_crlf_split_end_info_8699de0_1` | `patches/slice_crlf_split_end_info_8699de0_1.patch` | `patch` | `8699de0908b3853431e2dcac6eb70faad7f326d0` |
 
 ## Property Mapping
 
@@ -19,6 +21,8 @@ Total mutations: 4
 | `rope_eq_utf8_boundary_cc516d5_1` | `property_rope_eq_chunk_invariant` | `witness_rope_eq_chunk_invariant_case_non_ascii_boundary` |
 | `rope_hash_chunk_boundary_fef5be9_1` | `property_rope_hash_chunk_invariant` | `witness_rope_hash_chunk_invariant_case_ascii_split` |
 | `utf16_code_unit_conversion_c0af16b_1` | `property_utf16_char_roundtrip` | `witness_utf16_char_roundtrip_case_latin1` |
+| `rope_builder_default_empty_stack_dfcac8b_1` | `property_rope_builder_default_build` | `witness_rope_builder_default_build_case_hello` |
+| `slice_crlf_split_end_info_8699de0_1` | `property_slice_crlf_len_lines` | `witness_slice_crlf_len_lines_case_mid_crlf` |
 
 ## Framework Coverage
 
@@ -28,6 +32,8 @@ Total mutations: 4
 | `property_rope_eq_chunk_invariant` | OK | OK | OK | OK |
 | `property_rope_hash_chunk_invariant` | OK | OK | OK | OK |
 | `property_utf16_char_roundtrip` | OK | OK | OK | OK |
+| `property_rope_builder_default_build` | OK | OK | OK | OK |
+| `property_slice_crlf_len_lines` | OK | OK | OK | OK |
 
 ## Bug Details
 
@@ -66,3 +72,21 @@ Total mutations: 4
 - **Fix commit**: `c0af16bdf5fef1a8f0a29b13a5dd0d44dd16c7a7` — "Fix utf16_cu_to_char_idx using wrong conversion function"
 - **Invariant violated**: For every char index `i` in a rope, `utf16_cu_to_char(char_to_utf16_cu(i)) == i`.
 - **How the mutation triggers**: The buggy import aliases `str_indices::utf16::from_byte_idx` as `utf16_code_unit_to_char_idx`, so the function that should map a UTF-16 code unit count back to a char index actually maps a *byte index* to a char index. For any text with non-ASCII chars, the round trip diverges starting at char index 1. The fix uses `str_indices::utf16::to_char_idx`.
+
+### 5. rope_builder_default_empty_stack (dfcac8b_1)
+- **Variant**: `rope_builder_default_empty_stack_dfcac8b_1`
+- **Location**: `src/rope_builder.rs`, `impl Default for RopeBuilder`
+- **Property**: `property_rope_builder_default_build`
+- **Witness**: `witness_rope_builder_default_build_case_hello`
+- **Fix commit**: `dfcac8b19ee571a2a399e189c12b2a10663ce464` — "Fix broken Default impl for RopeBuilder"
+- **Invariant violated**: `RopeBuilder::default()` is functionally equivalent to `RopeBuilder::new()` — appending text and finishing must not panic and must produce a rope whose contents equal the appended text.
+- **How the mutation triggers**: The buggy `#[derive(Default)]` constructs `RopeBuilder { stack: SmallVec::new(), .. }` with an empty stack. `RopeBuilder::new()` instead pushes a single empty-leaf node onto the stack; every `append` / `finish` path relies on that initial leaf. With the derived default, `append_leaf_node` panics at `self.stack.pop().unwrap()`, and `finish` underflows on `self.stack.len() - 1`. The fix replaces the derive with a hand-written `impl Default` delegating to `Self::new()`.
+
+### 6. slice_crlf_split_end_info (8699de0_1)
+- **Variant**: `slice_crlf_split_end_info_8699de0_1`
+- **Location**: `src/slice.rs`, `RopeSlice::new_with_range` `end_info` computation
+- **Property**: `property_slice_crlf_len_lines`
+- **Witness**: `witness_slice_crlf_len_lines_case_mid_crlf`
+- **Fix commit**: `8699de0908b3853431e2dcac6eb70faad7f326d0` — "Fix bug when a slice splits a CRLF pair"
+- **Invariant violated**: For every char index `i` in a rope, `rope.slice(..i).len_lines()` matches the slow per-byte line count of `&text[..byte_idx(i)]` — including when `i` lands between a `\r` and a `\n`.
+- **How the mutation triggers**: The buggy `end_info` computes `node.char_to_text_info(n_end)` without detecting the slice-boundary CRLF split. When the slice cuts between `\r` and `\n`, the terminating `\r` of the slice no longer has a following `\n` inside the slice; the correct line-break count is one higher than what `char_to_text_info` returns from the unsliced tree. The fix adds `if node.is_crlf_split(n_end) { info.line_breaks += 1; }`. The property forces an internal-node rope layout (via `rope_from_str_chunked` with small chunks) so the slice reaches the `RSEnum::Full` branch where the bug lives; a single-leaf rope bypasses it through the `Node::Leaf` early-return.
