@@ -1,0 +1,58 @@
+# ETNA workload index for ropey.
+#
+# One [[variant]] per injected mutation. Source of truth for variant -> property
+# mapping. Every other fact is derivable from the source tree:
+#   - ls patches/*.patch                       (patch-based variants)
+#   - grep -rn "pub fn property_" src/etna.rs  (property functions)
+#   - grep -rn "fn witness_.*_case_" tests/    (witness tests)
+#
+# Base commit for this workload is HEAD of master on this tree. Every
+# etna/<variant> branch is master + exactly one patch applied on top.
+
+[[variant]]
+name = "lines_empty_total_lines_faf6738_1"
+property = "lines_match_model"
+injection = "patch"
+patch = "patches/lines_empty_total_lines_faf6738_1.patch"
+source_commit = "faf67387b86584a893d1af60d3a71ab0bd1deac6"
+witnesses = [
+    "witness_lines_match_model_case_empty",
+]
+frameworks = ["proptest", "quickcheck", "crabcheck", "hegel"]
+files = ["src/iter.rs"]
+
+[[variant]]
+name = "rope_eq_utf8_boundary_cc516d5_1"
+property = "rope_eq_chunk_invariant"
+injection = "patch"
+patch = "patches/rope_eq_utf8_boundary_cc516d5_1.patch"
+source_commit = "cc516d54037a2f98785dc8cc77d6e6a6201502c3"
+witnesses = [
+    "witness_rope_eq_chunk_invariant_case_non_ascii_boundary",
+]
+frameworks = ["proptest", "quickcheck", "crabcheck", "hegel"]
+files = ["src/slice.rs"]
+
+[[variant]]
+name = "rope_hash_chunk_boundary_fef5be9_1"
+property = "rope_hash_chunk_invariant"
+injection = "patch"
+patch = "patches/rope_hash_chunk_boundary_fef5be9_1.patch"
+source_commit = "fef5be9c52b3bab9d2e4d25fbb66e05ff5ddb8ca"
+witnesses = [
+    "witness_rope_hash_chunk_invariant_case_ascii_split",
+]
+frameworks = ["proptest", "quickcheck", "crabcheck", "hegel"]
+files = ["src/slice.rs"]
+
+[[variant]]
+name = "utf16_code_unit_conversion_c0af16b_1"
+property = "utf16_char_roundtrip"
+injection = "patch"
+patch = "patches/utf16_code_unit_conversion_c0af16b_1.patch"
+source_commit = "c0af16bdf5fef1a8f0a29b13a5dd0d44dd16c7a7"
+witnesses = [
+    "witness_utf16_char_roundtrip_case_latin1",
+]
+frameworks = ["proptest", "quickcheck", "crabcheck", "hegel"]
+files = ["src/str_utils.rs"]

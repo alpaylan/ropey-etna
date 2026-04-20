@@ -1,13 +1,14 @@
 [package]
 name = "ropey"
 version = "1.6.1"
+edition = "2021"
 authors = ["Nathan Vegdahl <cessen@cessen.com>"]
 description = "A fast and robust text rope for Rust"
 documentation = "https://docs.rs/ropey"
 repository = "https://github.com/cessen/ropey"
 readme = "README.md"
+rust-version = "1.90.0"
 license = "MIT"
-rust-version = "1.65"
 keywords = ["rope", "text", "edit", "buffer"]
 categories = ["text-processing", "data-structures"]
 exclude = ["/design/*", "/benches/*.txt", "/fuzz/**", "/.github/*"]
@@ -26,6 +27,13 @@ small_chunks = []
 [dependencies]
 smallvec = "1.0.0"
 str_indices = { version = "0.4", default-features = false }
+# ETNA framework dependencies — linked by src/bin/etna.rs.
+proptest = "1.11.0"
+quickcheck = { path = "/Users/akeles/Programming/projects/PbtBenchmark/quickcheck", features = ["etna"] }
+crabcheck = { path = "/Users/akeles/Programming/projects/PbtBenchmark/crabcheck" }
+hegeltest = "0.3.7"
+rand = "0.9"
+fnv = "1.0.7"
 
 [dev-dependencies]
 fastrand = "2.3.0"
@@ -60,3 +68,12 @@ harness = false
 [[bench]]
 name = "iterators"
 harness = false
+
+[[bin]]
+name = "etna"
+path = "src/bin/etna.rs"
+
+# ETNA: keep debug assertions on in release so internal invariants panic
+# (several variants manifest only via `debug_assert!`).
+[profile.release]
+debug-assertions = true

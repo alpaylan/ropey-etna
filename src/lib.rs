@@ -192,6 +192,7 @@ mod rope_builder;
 mod slice;
 mod tree;
 
+pub mod etna;
 pub mod iter;
 pub mod str_utils;
 
