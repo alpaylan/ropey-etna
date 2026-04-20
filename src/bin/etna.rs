@@ -313,9 +313,10 @@ const CRLF_POOL: &[char] = &[
 ];
 
 fn random_text_crlf<R: Rng>(rng: &mut R) -> String {
-    // 2..=64 chars is enough to give a rich set of candidate slice cuts
-    // while keeping proptest / crabcheck shrink time reasonable.
-    let len = rng.random_range(2usize..=64);
+    // The slice_crlf bug only triggers on ropes with an internal (non-leaf)
+    // root — `Rope::from_str`'s MAX_BYTES is ~512, so random inputs need to
+    // be comfortably past that to reach the `RSEnum::Full` branch.
+    let len = rng.random_range(640usize..=1536);
     (0..len)
         .map(|_| CRLF_POOL[rng.random_range(0..CRLF_POOL.len())])
         .collect()
@@ -376,7 +377,9 @@ impl QcArbitrary for SmallChunk {
 
 impl QcArbitrary for TextCrlf {
     fn arbitrary(g: &mut Gen) -> Self {
-        let len = g.random_range(2usize..=64);
+        // Must exceed MAX_BYTES so the resulting rope has internal structure
+        // (see comment on `random_text_crlf`).
+        let len = g.random_range(640usize..=1536);
         let s: String = (0..len)
             .map(|_| CRLF_POOL[g.random_range(0..CRLF_POOL.len())])
             .collect();
@@ -455,7 +458,10 @@ fn small_chunk_strategy() -> BoxedStrategy<u16> {
 }
 
 fn text_crlf_strategy() -> BoxedStrategy<String> {
-    prop::collection::vec(prop::sample::select(CRLF_POOL.to_vec()), 2..=64)
+    // Size bounded above MAX_BYTES (~512) so `Rope::from_str` produces an
+    // internal-node root — the only layout that reaches the buggy
+    // `RSEnum::Full` `end_info` branch.
+    prop::collection::vec(prop::sample::select(CRLF_POOL.to_vec()), 640..=1536)
         .prop_map(|cs: Vec<char>| cs.into_iter().collect())
         .boxed()
 }
@@ -898,7 +904,9 @@ fn hg_draw_small_chunk(tc: &TestCase) -> u16 {
 }
 
 fn hg_draw_text_crlf(tc: &TestCase) -> String {
-    let len = tc.draw(hgen::integers::<usize>().min_value(2).max_value(64));
+    // Above MAX_BYTES (~512) so the rope has an internal root — the bug only
+    // manifests on non-single-leaf ropes.
+    let len = tc.draw(hgen::integers::<usize>().min_value(640).max_value(1536));
     (0..len).map(|_| hg_draw_char(tc, CRLF_POOL)).collect()
 }
 
