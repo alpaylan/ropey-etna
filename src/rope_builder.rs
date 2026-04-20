@@ -38,7 +38,7 @@ use crate::tree::{Node, NodeChildren, NodeText, MAX_BYTES, MAX_CHILDREN, MIN_BYT
 ///
 /// assert_eq!(rope, "Hello world!\nHow's it going?");
 /// ```
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct RopeBuilder {
     stack: SmallVec<[Arc<Node>; 4]>,
     buffer: String,
@@ -288,12 +288,6 @@ impl RopeBuilder {
                 }
             }
         }
-    }
-}
-
-impl Default for RopeBuilder {
-    fn default() -> Self {
-        Self::new()
     }
 }
 
