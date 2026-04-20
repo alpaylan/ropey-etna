@@ -120,18 +120,7 @@ impl<'a> RopeSlice<'a> {
         RopeSlice(RSEnum::Full {
             node: node,
             start_info: node.char_to_text_info(n_start),
-            end_info: {
-                #[cfg(any(feature = "cr_lines", feature = "unicode_lines"))]
-                {
-                    let mut info = node.char_to_text_info(n_end);
-                    if node.is_crlf_split(n_end) {
-                        info.line_breaks += 1;
-                    }
-                    info
-                }
-                #[cfg(not(any(feature = "cr_lines", feature = "unicode_lines")))]
-                node.char_to_text_info(n_end)
-            },
+            end_info: node.char_to_text_info(n_end),
         })
     }
 
