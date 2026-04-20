@@ -56,7 +56,7 @@ pub(crate) fn byte_to_utf16_surrogate_idx(text: &str, byte_idx: usize) -> usize 
 }
 
 pub(crate) fn utf16_code_unit_to_char_idx(text: &str, utf16_idx: usize) -> usize {
-    str_indices::chars::from_byte_idx(text, str_indices::utf16::to_byte_idx(text, utf16_idx))
+    str_indices::utf16::from_byte_idx(text, utf16_idx)
 }
 
 /// Returns the byte index of the start of the last line of the passed text.
