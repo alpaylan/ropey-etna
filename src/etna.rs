@@ -329,7 +329,13 @@ pub fn property_rope_builder_default_build(text: String) -> PropertyResult {
 ///     following `\n` inside the slice, so CRLF no longer pairs and the
 ///     count of line breaks inside the slice is under-reported by one.
 pub fn property_slice_crlf_len_lines(text: String, prefix: u16) -> PropertyResult {
-    let rope = Rope::from_str(&text);
+    // Force an internal-node rope layout with small chunks so the slice
+    // endpoint falls inside `RSEnum::Full`'s `end_info` computation — that is
+    // the code path the patch corrupts. A single-leaf rope takes the
+    // `Node::Leaf` early-return in `RopeSlice::new_with_range`, which
+    // recomputes line breaks from the slice text directly and therefore hides
+    // the bug.
+    let rope = rope_from_str_chunked(&text, 4);
     let n_chars = rope.len_chars();
     if n_chars == 0 {
         return PropertyResult::Discard;

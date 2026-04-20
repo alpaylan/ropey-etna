@@ -88,13 +88,15 @@ fn witness_rope_builder_default_build_case_hello() {
 
 #[test]
 fn witness_slice_crlf_len_lines_case_mid_crlf() {
-    // 15 CRLF pairs = 30 chars. At char index 1 the slice ends between a
-    // `\r` and a `\n`, so under the buggy end_info the CRLF counts as
-    // zero line breaks (the \r has no visible \n neighbour inside the
-    // slice); the fixed end_info adds 1.
+    // 15 CRLF pairs = 30 chars. The property internally chunks the rope
+    // (4-byte chunks) to force an internal-node layout so the slice reaches
+    // `RSEnum::Full`'s `end_info` branch. At char index 5 the slice end lands
+    // inside a CRLF pair spanning two children: the first child ends at
+    // char 4 ('\r'), the second begins at char 5 ('\n'). The fixed
+    // `is_crlf_split` adds +1 line break; the buggy end_info omits it.
     let text = "\r\n".repeat(15);
     must_pass(
-        property_slice_crlf_len_lines(text, 1),
+        property_slice_crlf_len_lines(text, 5),
         "slice_crlf_len_lines mid crlf",
     );
 }
