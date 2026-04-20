@@ -280,3 +280,72 @@ pub fn property_utf16_char_roundtrip(text: String) -> PropertyResult {
     }
     PropertyResult::Pass
 }
+
+/// Invariant: `RopeBuilder::default()` produces a builder that is functionally
+/// equivalent to `RopeBuilder::new()` — appending `text` and finishing must
+/// succeed and yield a rope whose contents equal `text`.
+///
+/// Detects:
+///   - `rope_builder_default_empty_stack_dfcac8b_1` — the buggy
+///     `#[derive(Default)]` gives `RopeBuilder { stack: SmallVec::new(), .. }`
+///     (empty stack). `append_leaf_node` immediately `self.stack.pop().unwrap()`s
+///     and panics; `finish` underflows `self.stack.len() - 1`. Either way,
+///     appending or finishing the default builder panics.
+pub fn property_rope_builder_default_build(text: String) -> PropertyResult {
+    let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let mut b = RopeBuilder::default();
+        b.append(&text);
+        b.finish()
+    }));
+    match outcome {
+        Ok(rope) => {
+            let got: String = rope.chars().collect();
+            if got == text {
+                PropertyResult::Pass
+            } else {
+                PropertyResult::Fail(format!(
+                    "RopeBuilder::default() built rope content mismatch: got {got:?}, want {text:?}"
+                ))
+            }
+        }
+        Err(_) => PropertyResult::Fail(format!(
+            "RopeBuilder::default().append({:?}).finish() panicked",
+            text
+        )),
+    }
+}
+
+/// Invariant: for every char index `i` in a rope, the sliced rope
+/// `r.slice(..i)` reports the same `len_lines()` as the slow per-byte line
+/// count over `&text[..byte_idx_of(i)]`. This must hold even when `i` lands
+/// between a `\r` and a `\n`, which is the exact trigger for the `8699de0`
+/// bug.
+///
+/// Detects:
+///   - `slice_crlf_split_end_info_8699de0_1` — the buggy slice builder sets
+///     `end_info = node.char_to_text_info(n_end)` without accounting for a
+///     `\r\n` pair split by the slice boundary. When the slice cuts between
+///     `\r` and `\n`, the terminating `\r` of the slice no longer has a
+///     following `\n` inside the slice, so CRLF no longer pairs and the
+///     count of line breaks inside the slice is under-reported by one.
+pub fn property_slice_crlf_len_lines(text: String, prefix: u16) -> PropertyResult {
+    let rope = Rope::from_str(&text);
+    let n_chars = rope.len_chars();
+    if n_chars == 0 {
+        return PropertyResult::Discard;
+    }
+    let at_char = (prefix as usize) % (n_chars + 1);
+    let at_byte = rope.char_to_byte(at_char);
+    let prefix_text = &text[..at_byte];
+    let want = slow_line_count(prefix_text);
+    let slice = rope.slice(..at_char);
+    let got = slice.len_lines();
+    if got == want {
+        PropertyResult::Pass
+    } else {
+        PropertyResult::Fail(format!(
+            "slice(..{at_char}).len_lines() = {got}, slow model = {want} (prefix_text={:?})",
+            prefix_text
+        ))
+    }
+}

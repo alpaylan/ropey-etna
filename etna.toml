@@ -56,3 +56,27 @@ witnesses = [
 ]
 frameworks = ["proptest", "quickcheck", "crabcheck", "hegel"]
 files = ["src/str_utils.rs"]
+
+[[variant]]
+name = "rope_builder_default_empty_stack_dfcac8b_1"
+property = "rope_builder_default_build"
+injection = "patch"
+patch = "patches/rope_builder_default_empty_stack_dfcac8b_1.patch"
+source_commit = "dfcac8b19ee571a2a399e189c12b2a10663ce464"
+witnesses = [
+    "witness_rope_builder_default_build_case_hello",
+]
+frameworks = ["proptest", "quickcheck", "crabcheck", "hegel"]
+files = ["src/rope_builder.rs"]
+
+[[variant]]
+name = "slice_crlf_split_end_info_8699de0_1"
+property = "slice_crlf_len_lines"
+injection = "patch"
+patch = "patches/slice_crlf_split_end_info_8699de0_1.patch"
+source_commit = "8699de0908b3853431e2dcac6eb70faad7f326d0"
+witnesses = [
+    "witness_slice_crlf_len_lines_case_mid_crlf",
+]
+frameworks = ["proptest", "quickcheck", "crabcheck", "hegel"]
+files = ["src/slice.rs"]

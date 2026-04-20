@@ -6,8 +6,9 @@
 //! `etna/<variant>` branch the witness for that variant must FAIL.
 
 use ropey::etna::{
-    property_lines_match_model, property_rope_eq_chunk_invariant,
-    property_rope_hash_chunk_invariant, property_utf16_char_roundtrip, PropertyResult,
+    property_lines_match_model, property_rope_builder_default_build,
+    property_rope_eq_chunk_invariant, property_rope_hash_chunk_invariant,
+    property_slice_crlf_len_lines, property_utf16_char_roundtrip, PropertyResult,
 };
 
 fn must_pass(r: PropertyResult, label: &str) {
@@ -67,5 +68,33 @@ fn witness_utf16_char_roundtrip_case_latin1() {
     must_pass(
         property_utf16_char_roundtrip(text),
         "utf16_char_roundtrip latin1",
+    );
+}
+
+// --- rope_builder_default_empty_stack_dfcac8b_1 ---
+
+#[test]
+fn witness_rope_builder_default_build_case_hello() {
+    // Default()-constructed builder must accept an append() and finish()
+    // without panicking. Under the buggy `#[derive(Default)]` the stack is
+    // empty, `append_leaf_node`'s `self.stack.pop().unwrap()` panics.
+    must_pass(
+        property_rope_builder_default_build("Hello, world!".to_string()),
+        "rope_builder_default_build hello",
+    );
+}
+
+// --- slice_crlf_split_end_info_8699de0_1 ---
+
+#[test]
+fn witness_slice_crlf_len_lines_case_mid_crlf() {
+    // 15 CRLF pairs = 30 chars. At char index 1 the slice ends between a
+    // `\r` and a `\n`, so under the buggy end_info the CRLF counts as
+    // zero line breaks (the \r has no visible \n neighbour inside the
+    // slice); the fixed end_info adds 1.
+    let text = "\r\n".repeat(15);
+    must_pass(
+        property_slice_crlf_len_lines(text, 1),
+        "slice_crlf_len_lines mid crlf",
     );
 }

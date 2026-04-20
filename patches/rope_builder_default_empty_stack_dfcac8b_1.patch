@@ -1,0 +1,44 @@
+From: etna <etna@local>
+Subject: [PATCH] inject rope_builder_default_empty_stack_dfcac8b_1
+
+Reintroduces the bug fixed in dfcac8b19ee571a2a399e189c12b2a10663ce464
+("Fix broken Default impl for RopeBuilder"):
+
+The derived `Default` for `RopeBuilder` leaves `stack` as an empty
+`SmallVec`, because that's what `SmallVec::default()` produces. The
+hand-written `Self::new()` instead pushes a single empty-leaf node onto
+the stack, which every append / finish path relies on. The buggy
+derive makes `RopeBuilder::default().append(..)` immediately panic
+inside `append_leaf_node`'s `self.stack.pop().unwrap()`, and
+`RopeBuilder::default().finish()` underflow on `self.stack.len() - 1`.
+
+---
+ src/rope_builder.rs | 6 ------
+ 1 file changed, 6 deletions(-)
+
+diff --git a/src/rope_builder.rs b/src/rope_builder.rs
+index 1111111..2222222 100644
+--- a/src/rope_builder.rs
++++ b/src/rope_builder.rs
+@@ -38,7 +38,7 @@ use crate::tree::{Node, NodeChildren, NodeText, MAX_BYTES, MAX_CHILDREN, MIN_BYT
+ ///
+ /// assert_eq!(rope, "Hello world!\nHow's it going?");
+ /// ```
+-#[derive(Debug, Clone)]
++#[derive(Debug, Clone, Default)]
+ pub struct RopeBuilder {
+     stack: SmallVec<[Arc<Node>; 4]>,
+     buffer: String,
+@@ -291,12 +291,6 @@ impl RopeBuilder {
+     }
+ }
+
+-impl Default for RopeBuilder {
+-    fn default() -> Self {
+-        Self::new()
+-    }
+-}
+-
+ enum NextText<'a> {
+     None,
+     UseBuffer,

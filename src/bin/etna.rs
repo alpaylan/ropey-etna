@@ -3,7 +3,8 @@
 // Usage: cargo run --release --bin etna -- <tool> <property>
 //   tool:     etna | proptest | quickcheck | crabcheck | hegel
 //   property: LinesMatchModel | RopeEqChunkInvariant |
-//             RopeHashChunkInvariant | Utf16CharRoundtrip | All
+//             RopeHashChunkInvariant | Utf16CharRoundtrip |
+//             RopeBuilderDefaultBuild | SliceCrlfLenLines | All
 //
 // Every invocation prints exactly one JSON line to stdout and exits 0
 // (except argv parsing, which exits 2).
@@ -16,8 +17,9 @@ use proptest::test_runner::{Config as ProptestConfig, TestCaseError, TestError, 
 use quickcheck::{Arbitrary as QcArbitrary, Gen, QuickCheck, ResultStatus, TestResult};
 use rand::Rng;
 use ropey::etna::{
-    property_lines_match_model, property_rope_eq_chunk_invariant,
-    property_rope_hash_chunk_invariant, property_utf16_char_roundtrip, PropertyResult,
+    property_lines_match_model, property_rope_builder_default_build,
+    property_rope_eq_chunk_invariant, property_rope_hash_chunk_invariant,
+    property_slice_crlf_len_lines, property_utf16_char_roundtrip, PropertyResult,
 };
 use std::fmt;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -53,6 +55,8 @@ const ALL_PROPERTIES: &[&str] = &[
     "RopeEqChunkInvariant",
     "RopeHashChunkInvariant",
     "Utf16CharRoundtrip",
+    "RopeBuilderDefaultBuild",
+    "SliceCrlfLenLines",
 ];
 
 fn cases_budget() -> u64 {
@@ -92,6 +96,14 @@ fn canonical_latin1_text() -> String {
     "éé".to_string()
 }
 
+fn canonical_builder_text() -> String {
+    "Hello, world!".to_string()
+}
+
+fn canonical_crlf_text() -> String {
+    "\r\n".repeat(15)
+}
+
 fn check_lines_match_model() -> Result<(), String> {
     to_err(property_lines_match_model(canonical_empty_text()))
 }
@@ -116,6 +128,14 @@ fn check_utf16_char_roundtrip() -> Result<(), String> {
     to_err(property_utf16_char_roundtrip(canonical_latin1_text()))
 }
 
+fn check_rope_builder_default_build() -> Result<(), String> {
+    to_err(property_rope_builder_default_build(canonical_builder_text()))
+}
+
+fn check_slice_crlf_len_lines() -> Result<(), String> {
+    to_err(property_slice_crlf_len_lines(canonical_crlf_text(), 1))
+}
+
 // ---------- etna (deterministic witness replay) ----------
 
 fn run_etna_property(property: &str) -> Outcome {
@@ -128,6 +148,8 @@ fn run_etna_property(property: &str) -> Outcome {
         "RopeEqChunkInvariant" => check_rope_eq_chunk_invariant(),
         "RopeHashChunkInvariant" => check_rope_hash_chunk_invariant(),
         "Utf16CharRoundtrip" => check_utf16_char_roundtrip(),
+        "RopeBuilderDefaultBuild" => check_rope_builder_default_build(),
+        "SliceCrlfLenLines" => check_slice_crlf_len_lines(),
         _ => {
             return (
                 Err(format!("Unknown property for etna: {property}")),
@@ -160,8 +182,12 @@ struct TextAny(String);
 struct TextNonAscii(String);
 #[derive(Clone)]
 struct TextChunky(String);
+#[derive(Clone)]
+struct TextCrlf(String);
 #[derive(Clone, Copy)]
 struct SmallChunk(u16);
+#[derive(Clone, Copy)]
+struct PrefixIdx(u16);
 
 impl fmt::Debug for TextAny {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -178,7 +204,17 @@ impl fmt::Debug for TextChunky {
         self.0.fmt(f)
     }
 }
+impl fmt::Debug for TextCrlf {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.0.fmt(f)
+    }
+}
 impl fmt::Debug for SmallChunk {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.0.fmt(f)
+    }
+}
+impl fmt::Debug for PrefixIdx {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.0.fmt(f)
     }
@@ -198,7 +234,17 @@ impl fmt::Display for TextChunky {
         fmt::Debug::fmt(&self.0, f)
     }
 }
+impl fmt::Display for TextCrlf {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt::Debug::fmt(&self.0, f)
+    }
+}
 impl fmt::Display for SmallChunk {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.0.fmt(f)
+    }
+}
+impl fmt::Display for PrefixIdx {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.0.fmt(f)
     }
@@ -260,6 +306,25 @@ fn random_small_chunk<R: Rng>(rng: &mut R) -> u16 {
     rng.random_range(1u16..=32)
 }
 
+// Pool for text_crlf: heavy on \r / \n so slice boundaries can land
+// inside a CRLF pair, plus enough ASCII filler to reach multi-chunk ropes.
+const CRLF_POOL: &[char] = &[
+    '\r', '\n', '\r', '\n', '\r', '\n', 'a', 'b', ' ', '.', '0',
+];
+
+fn random_text_crlf<R: Rng>(rng: &mut R) -> String {
+    // 2..=64 chars is enough to give a rich set of candidate slice cuts
+    // while keeping proptest / crabcheck shrink time reasonable.
+    let len = rng.random_range(2usize..=64);
+    (0..len)
+        .map(|_| CRLF_POOL[rng.random_range(0..CRLF_POOL.len())])
+        .collect()
+}
+
+fn random_prefix_idx<R: Rng>(rng: &mut R) -> u16 {
+    rng.random_range(0u16..=u16::MAX)
+}
+
 impl QcArbitrary for TextAny {
     fn arbitrary(g: &mut Gen) -> Self {
         if g.random_range(0u8..5) == 0 {
@@ -309,6 +374,22 @@ impl QcArbitrary for SmallChunk {
     }
 }
 
+impl QcArbitrary for TextCrlf {
+    fn arbitrary(g: &mut Gen) -> Self {
+        let len = g.random_range(2usize..=64);
+        let s: String = (0..len)
+            .map(|_| CRLF_POOL[g.random_range(0..CRLF_POOL.len())])
+            .collect();
+        TextCrlf(s)
+    }
+}
+
+impl QcArbitrary for PrefixIdx {
+    fn arbitrary(g: &mut Gen) -> Self {
+        PrefixIdx(g.random_range(0u16..=u16::MAX))
+    }
+}
+
 impl<R: Rng> CcArbitrary<R> for TextAny {
     fn generate(rng: &mut R, _n: usize) -> Self {
         TextAny(random_text_any(rng))
@@ -327,6 +408,16 @@ impl<R: Rng> CcArbitrary<R> for TextChunky {
 impl<R: Rng> CcArbitrary<R> for SmallChunk {
     fn generate(rng: &mut R, _n: usize) -> Self {
         SmallChunk(random_small_chunk(rng))
+    }
+}
+impl<R: Rng> CcArbitrary<R> for TextCrlf {
+    fn generate(rng: &mut R, _n: usize) -> Self {
+        TextCrlf(random_text_crlf(rng))
+    }
+}
+impl<R: Rng> CcArbitrary<R> for PrefixIdx {
+    fn generate(rng: &mut R, _n: usize) -> Self {
+        PrefixIdx(random_prefix_idx(rng))
     }
 }
 
@@ -361,6 +452,16 @@ fn text_chunky_strategy() -> BoxedStrategy<String> {
 
 fn small_chunk_strategy() -> BoxedStrategy<u16> {
     (1u16..=32u16).boxed()
+}
+
+fn text_crlf_strategy() -> BoxedStrategy<String> {
+    prop::collection::vec(prop::sample::select(CRLF_POOL.to_vec()), 2..=64)
+        .prop_map(|cs: Vec<char>| cs.into_iter().collect())
+        .boxed()
+}
+
+fn prefix_idx_strategy() -> BoxedStrategy<u16> {
+    (0u16..=u16::MAX).boxed()
 }
 
 fn run_proptest_property(property: &str) -> Outcome {
@@ -466,6 +567,46 @@ fn run_proptest_property(property: &str) -> Outcome {
                 TestError::Fail(reason, _) => reason.to_string(),
                 other => other.to_string(),
             }),
+        "RopeBuilderDefaultBuild" => runner
+            .run(&text_any_strategy(), move |text| {
+                c.fetch_add(1, Ordering::Relaxed);
+                let cex = text.clone();
+                let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    property_rope_builder_default_build(text)
+                }));
+                match outcome {
+                    Ok(PropertyResult::Pass) | Ok(PropertyResult::Discard) => Ok(()),
+                    Ok(PropertyResult::Fail(_)) | Err(_) => {
+                        Err(TestCaseError::fail(format!("({:?})", cex)))
+                    }
+                }
+            })
+            .map_err(|e| match e {
+                TestError::Fail(reason, _) => reason.to_string(),
+                other => other.to_string(),
+            }),
+        "SliceCrlfLenLines" => runner
+            .run(
+                &(text_crlf_strategy(), prefix_idx_strategy()),
+                move |(text, prefix)| {
+                    c.fetch_add(1, Ordering::Relaxed);
+                    let cex_text = text.clone();
+                    let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                        property_slice_crlf_len_lines(text, prefix)
+                    }));
+                    match outcome {
+                        Ok(PropertyResult::Pass) | Ok(PropertyResult::Discard) => Ok(()),
+                        Ok(PropertyResult::Fail(_)) | Err(_) => Err(TestCaseError::fail(format!(
+                            "({:?} {})",
+                            cex_text, prefix
+                        ))),
+                    }
+                },
+            )
+            .map_err(|e| match e {
+                TestError::Fail(reason, _) => reason.to_string(),
+                other => other.to_string(),
+            }),
         _ => {
             return (
                 Err(format!("Unknown property for proptest: {property}")),
@@ -526,6 +667,24 @@ fn qc_utf16_char_roundtrip(TextNonAscii(text): TextNonAscii) -> TestResult {
     }
 }
 
+fn qc_rope_builder_default_build(TextAny(text): TextAny) -> TestResult {
+    QC_COUNTER.fetch_add(1, Ordering::Relaxed);
+    match property_rope_builder_default_build(text) {
+        PropertyResult::Pass => TestResult::passed(),
+        PropertyResult::Discard => TestResult::discard(),
+        PropertyResult::Fail(_) => TestResult::failed(),
+    }
+}
+
+fn qc_slice_crlf_len_lines(TextCrlf(text): TextCrlf, PrefixIdx(prefix): PrefixIdx) -> TestResult {
+    QC_COUNTER.fetch_add(1, Ordering::Relaxed);
+    match property_slice_crlf_len_lines(text, prefix) {
+        PropertyResult::Pass => TestResult::passed(),
+        PropertyResult::Discard => TestResult::discard(),
+        PropertyResult::Fail(_) => TestResult::failed(),
+    }
+}
+
 fn run_quickcheck_property(property: &str) -> Outcome {
     if property == "All" {
         return run_all(run_quickcheck_property);
@@ -548,6 +707,11 @@ fn run_quickcheck_property(property: &str) -> Outcome {
         "Utf16CharRoundtrip" => {
             qc.quicktest(qc_utf16_char_roundtrip as fn(TextNonAscii) -> TestResult)
         }
+        "RopeBuilderDefaultBuild" => {
+            qc.quicktest(qc_rope_builder_default_build as fn(TextAny) -> TestResult)
+        }
+        "SliceCrlfLenLines" => qc
+            .quicktest(qc_slice_crlf_len_lines as fn(TextCrlf, PrefixIdx) -> TestResult),
         _ => {
             return (
                 Err(format!("Unknown property for quickcheck: {property}")),
@@ -614,6 +778,26 @@ fn cc_utf16_char_roundtrip(TextNonAscii(text): TextNonAscii) -> Option<bool> {
     }
 }
 
+fn cc_rope_builder_default_build(TextAny(text): TextAny) -> Option<bool> {
+    CC_COUNTER.fetch_add(1, Ordering::Relaxed);
+    match property_rope_builder_default_build(text) {
+        PropertyResult::Pass => Some(true),
+        PropertyResult::Fail(_) => Some(false),
+        PropertyResult::Discard => None,
+    }
+}
+
+fn cc_slice_crlf_len_lines(
+    (TextCrlf(text), PrefixIdx(prefix)): (TextCrlf, PrefixIdx),
+) -> Option<bool> {
+    CC_COUNTER.fetch_add(1, Ordering::Relaxed);
+    match property_slice_crlf_len_lines(text, prefix) {
+        PropertyResult::Pass => Some(true),
+        PropertyResult::Fail(_) => Some(false),
+        PropertyResult::Discard => None,
+    }
+}
+
 fn run_crabcheck_property(property: &str) -> Outcome {
     if property == "All" {
         return run_all(run_crabcheck_property);
@@ -633,6 +817,12 @@ fn run_crabcheck_property(property: &str) -> Outcome {
         }
         "Utf16CharRoundtrip" => {
             crabcheck_qc::quickcheck_with_config(cc_config, cc_utf16_char_roundtrip)
+        }
+        "RopeBuilderDefaultBuild" => {
+            crabcheck_qc::quickcheck_with_config(cc_config, cc_rope_builder_default_build)
+        }
+        "SliceCrlfLenLines" => {
+            crabcheck_qc::quickcheck_with_config(cc_config, cc_slice_crlf_len_lines)
         }
         _ => {
             return (
@@ -705,6 +895,15 @@ fn hg_draw_text_chunky(tc: &TestCase) -> String {
 
 fn hg_draw_small_chunk(tc: &TestCase) -> u16 {
     tc.draw(hgen::integers::<u16>().min_value(1).max_value(32))
+}
+
+fn hg_draw_text_crlf(tc: &TestCase) -> String {
+    let len = tc.draw(hgen::integers::<usize>().min_value(2).max_value(64));
+    (0..len).map(|_| hg_draw_char(tc, CRLF_POOL)).collect()
+}
+
+fn hg_draw_prefix_idx(tc: &TestCase) -> u16 {
+    tc.draw(hgen::integers::<u16>().min_value(0).max_value(u16::MAX))
 }
 
 fn run_hegel_property(property: &str) -> Outcome {
@@ -782,6 +981,41 @@ fn run_hegel_property(property: &str) -> Outcome {
                 match outcome {
                     Ok(PropertyResult::Pass) | Ok(PropertyResult::Discard) => {}
                     Ok(PropertyResult::Fail(_)) | Err(_) => panic!("({:?})", cex),
+                }
+            })
+            .settings(settings.clone())
+            .run();
+        }
+        "RopeBuilderDefaultBuild" => {
+            Hegel::new(|tc: TestCase| {
+                HG_COUNTER.fetch_add(1, Ordering::Relaxed);
+                let text = hg_draw_text_any(&tc);
+                let cex = text.clone();
+                let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    property_rope_builder_default_build(text)
+                }));
+                match outcome {
+                    Ok(PropertyResult::Pass) | Ok(PropertyResult::Discard) => {}
+                    Ok(PropertyResult::Fail(_)) | Err(_) => panic!("({:?})", cex),
+                }
+            })
+            .settings(settings.clone())
+            .run();
+        }
+        "SliceCrlfLenLines" => {
+            Hegel::new(|tc: TestCase| {
+                HG_COUNTER.fetch_add(1, Ordering::Relaxed);
+                let text = hg_draw_text_crlf(&tc);
+                let prefix = hg_draw_prefix_idx(&tc);
+                let cex_text = text.clone();
+                let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    property_slice_crlf_len_lines(text, prefix)
+                }));
+                match outcome {
+                    Ok(PropertyResult::Pass) | Ok(PropertyResult::Discard) => {}
+                    Ok(PropertyResult::Fail(_)) | Err(_) => {
+                        panic!("({:?} {})", cex_text, prefix)
+                    }
                 }
             })
             .settings(settings.clone())
@@ -879,7 +1113,7 @@ fn main() {
         eprintln!("Usage: {} <tool> <property>", args[0]);
         eprintln!("Tools: etna | proptest | quickcheck | crabcheck | hegel");
         eprintln!(
-            "Properties: LinesMatchModel | RopeEqChunkInvariant | RopeHashChunkInvariant | Utf16CharRoundtrip | All"
+            "Properties: LinesMatchModel | RopeEqChunkInvariant | RopeHashChunkInvariant | Utf16CharRoundtrip | RopeBuilderDefaultBuild | SliceCrlfLenLines | All"
         );
         std::process::exit(2);
     }

@@ -1,0 +1,42 @@
+From: etna <etna@local>
+Subject: [PATCH] inject slice_crlf_split_end_info_8699de0_1
+
+Reintroduces the bug fixed in 8699de0908b3853431e2dcac6eb70faad7f326d0
+("Fix bug when a slice splits a CRLF pair").
+
+When a `RopeSlice`'s end index lands between a `\r` and a `\n`, the
+CRLF pair is split by the slice boundary: the `\r` no longer has a
+following `\n` inside the slice, so the slice loses a line break. The
+fixed code detects that with `is_crlf_split` and bumps
+`info.line_breaks` by one; reverting to `node.char_to_text_info(n_end)`
+leaves the slice under-counting a line for every slice that ends in
+the middle of a CRLF.
+
+---
+ src/slice.rs | 13 +------------
+ 1 file changed, 1 insertion(+), 12 deletions(-)
+
+diff --git a/src/slice.rs b/src/slice.rs
+index 1111111..2222222 100644
+--- a/src/slice.rs
++++ b/src/slice.rs
+@@ -120,18 +120,7 @@ impl<'a> RopeSlice<'a> {
+         RopeSlice(RSEnum::Full {
+             node: node,
+             start_info: node.char_to_text_info(n_start),
+-            end_info: {
+-                #[cfg(any(feature = "cr_lines", feature = "unicode_lines"))]
+-                {
+-                    let mut info = node.char_to_text_info(n_end);
+-                    if node.is_crlf_split(n_end) {
+-                        info.line_breaks += 1;
+-                    }
+-                    info
+-                }
+-                #[cfg(not(any(feature = "cr_lines", feature = "unicode_lines")))]
+-                node.char_to_text_info(n_end)
+-            },
++            end_info: node.char_to_text_info(n_end),
+         })
+     }
+
