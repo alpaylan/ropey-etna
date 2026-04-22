@@ -1,82 +1,160 @@
-# ETNA workload index for ropey.
-#
-# One [[variant]] per injected mutation. Source of truth for variant -> property
-# mapping. Every other fact is derivable from the source tree:
-#   - ls patches/*.patch                       (patch-based variants)
-#   - grep -rn "pub fn property_" src/etna.rs  (property functions)
-#   - grep -rn "fn witness_.*_case_" tests/    (witness tests)
-#
-# Base commit for this workload is HEAD of master on this tree. Every
-# etna/<variant> branch is master + exactly one patch applied on top.
+name = "ropey"
+language = "rust"
+crate = "ropey"
+base_commit = "bd36566023fc12ff70d5a3e81defa942ab8d6f72"
 
-[[variant]]
-name = "lines_empty_total_lines_faf6738_1"
-property = "lines_match_model"
-injection = "patch"
-patch = "patches/lines_empty_total_lines_faf6738_1.patch"
-source_commit = "faf67387b86584a893d1af60d3a71ab0bd1deac6"
-witnesses = [
-    "witness_lines_match_model_case_empty",
-]
-frameworks = ["proptest", "quickcheck", "crabcheck", "hegel"]
+[[tasks]]
+mutations = ["lines_empty_total_lines_faf6738_1"]
+
+[tasks.source]
+repo = "https://github.com/cessen/ropey"
+commits = ["faf67387b86584a893d1af60d3a71ab0bd1deac6"]
+commit_subjects = ["fix integer overflow when the lines iterator is created for an empty Rope"]
+summary = "`Lines::new_with_range_at` short-circuited the empty-slice branch with `total_lines: 0`, but the API invariant is that an empty rope still has one (empty) line. `Lines::size_hint()` then computed `total_lines - line_idx`, which reported `0` and underflowed after a single advance. The fix sets `total_lines: 1` for the empty branch."
+
+[tasks.injection]
+kind = "patch"
 files = ["src/iter.rs"]
+locations = [{ file = "src/iter.rs" }]
+patch = "patches/lines_empty_total_lines_faf6738_1.patch"
 
-[[variant]]
-name = "rope_eq_utf8_boundary_cc516d5_1"
-property = "rope_eq_chunk_invariant"
-injection = "patch"
+[tasks.bug]
+short_name = "lines_empty_total_lines"
+invariant = "For any `text`, `Rope::from_str(text).lines().len()` equals the slow per-byte line count. An empty rope has exactly one (empty) line."
+how_triggered = "The empty-slice branch returns `total_lines: 0`. `Lines::size_hint()` computes `total_lines - line_idx`, which both reports length `0` (wrong: want `1`) and underflows once a single `.next()` advances `line_idx` — surfacing as either `.len() == 0` or a debug-assert panic."
+
+[[tasks.tasks]]
+property = "LinesMatchModel"
+witnesses = [
+  { test_fn = "witness_lines_match_model_case_empty" },
+]
+
+[[tasks]]
+mutations = ["rope_eq_utf8_boundary_cc516d5_1"]
+
+[tasks.source]
+repo = "https://github.com/cessen/ropey"
+commits = ["cc516d54037a2f98785dc8cc77d6e6a6201502c3"]
+commit_subjects = ["fix: panic when comparing ropes with chunks not aligned at char bounds"]
+summary = "`RopeSlice: PartialEq` compared chunks as `&str` and advanced via `chunk2[..chunk1.len()]`. After edits that left internal chunks starting mid-scalar, that slice index is not a char boundary and `&str` indexing panics. The fix switches the inner comparison to `&[u8]`, which has no alignment requirement."
+
+[tasks.injection]
+kind = "patch"
+files = ["src/slice.rs"]
+locations = [{ file = "src/slice.rs" }]
 patch = "patches/rope_eq_utf8_boundary_cc516d5_1.patch"
-source_commit = "cc516d54037a2f98785dc8cc77d6e6a6201502c3"
-witnesses = [
-    "witness_rope_eq_chunk_invariant_case_non_ascii_boundary",
-]
-frameworks = ["proptest", "quickcheck", "crabcheck", "hegel"]
-files = ["src/slice.rs"]
 
-[[variant]]
-name = "rope_hash_chunk_boundary_fef5be9_1"
-property = "rope_hash_chunk_invariant"
-injection = "patch"
+[tasks.bug]
+short_name = "rope_eq_utf8_boundary"
+invariant = "Comparing `RopeSlice`s obtained from ropes containing non-ASCII text (with at least one modifying operation applied) never panics."
+how_triggered = "The buggy comparator holds chunks as `&str` and advances via `chunk2[..chunk1.len()]`. When the internal chunks of a `.lines()` slice start mid-scalar (common after `rope.remove(...)` against text with multi-byte chars), that slice index is not a char boundary and `&str` indexing panics. The fix switches the inner comparison to `&[u8]`."
+
+[[tasks.tasks]]
+property = "RopeEqChunkInvariant"
+witnesses = [
+  { test_fn = "witness_rope_eq_chunk_invariant_case_non_ascii_boundary" },
+]
+
+[[tasks]]
+mutations = ["rope_hash_chunk_boundary_fef5be9_1"]
+
+[tasks.source]
+repo = "https://github.com/cessen/ropey"
+commits = ["fef5be9c9587974584bafa40c54a375ce6fbbc9a"]
+commit_subjects = ["Hash slice in chunks of a fixed size to prevent chunk-boundary-dependent hashing"]
+summary = "`Hash` for `RopeSlice` issued one `state.write(chunk.as_bytes())` per internal chunk, so two ropes with the same text but different chunk layouts fed different `write` call sequences to the hasher — violating `a == b ⇒ hash(a) == hash(b)` under boundary-sensitive hashers like FNV/FxHash. The fix buffers into fixed 256-byte blocks regardless of chunk layout."
+
+[tasks.injection]
+kind = "patch"
+files = ["src/slice.rs"]
+locations = [{ file = "src/slice.rs" }]
 patch = "patches/rope_hash_chunk_boundary_fef5be9_1.patch"
-source_commit = "fef5be9c52b3bab9d2e4d25fbb66e05ff5ddb8ca"
-witnesses = [
-    "witness_rope_hash_chunk_invariant_case_ascii_split",
-]
-frameworks = ["proptest", "quickcheck", "crabcheck", "hegel"]
-files = ["src/slice.rs"]
 
-[[variant]]
-name = "utf16_code_unit_conversion_c0af16b_1"
-property = "utf16_char_roundtrip"
-injection = "patch"
-patch = "patches/utf16_code_unit_conversion_c0af16b_1.patch"
-source_commit = "c0af16bdf5fef1a8f0a29b13a5dd0d44dd16c7a7"
+[tasks.bug]
+short_name = "rope_hash_chunk_boundary"
+invariant = "Two ropes built from the same text (but with different chunk layouts) produce the same hash under any `Hasher`. `std::hash::Hash` requires identical `Hasher::write` call sequences for equal values."
+how_triggered = "The buggy implementation calls `state.write(chunk.as_bytes())` once per chunk, so two ropes with the same text but different chunk sizes feed different `write` sequences to the hasher. Under a boundary-sensitive hasher (e.g. `fnv`, which is what `HashMap`s actually use via `hashbrown`), the resulting hashes differ — breaking the `a == b => hash(a) == hash(b)` contract. The fix always hashes in fixed 256-byte blocks regardless of chunk layout."
+
+[[tasks.tasks]]
+property = "RopeHashChunkInvariant"
 witnesses = [
-    "witness_utf16_char_roundtrip_case_latin1",
+  { test_fn = "witness_rope_hash_chunk_invariant_case_ascii_split" },
 ]
-frameworks = ["proptest", "quickcheck", "crabcheck", "hegel"]
+
+[[tasks]]
+mutations = ["utf16_code_unit_conversion_c0af16b_1"]
+
+[tasks.source]
+repo = "https://github.com/cessen/ropey"
+commits = ["c0af16b6748775f9166cb16c4f6b9cbd0dce0977"]
+commit_subjects = ["Fix utf16_cu_to_char_idx using wrong conversion function"]
+summary = "`utf16_code_unit_to_char_idx` was imported as `str_indices::utf16::from_byte_idx` — i.e. a *byte* index converter, not a UTF-16 code-unit one. For any non-ASCII text the round-trip `utf16_cu_to_char(char_to_utf16_cu(i))` diverged starting at char 1. The fix imports `str_indices::utf16::to_char_idx` instead."
+
+[tasks.injection]
+kind = "patch"
 files = ["src/str_utils.rs"]
+locations = [{ file = "src/str_utils.rs" }]
+patch = "patches/utf16_code_unit_conversion_c0af16b_1.patch"
 
-[[variant]]
-name = "rope_builder_default_empty_stack_dfcac8b_1"
-property = "rope_builder_default_build"
-injection = "patch"
-patch = "patches/rope_builder_default_empty_stack_dfcac8b_1.patch"
-source_commit = "dfcac8b19ee571a2a399e189c12b2a10663ce464"
+[tasks.bug]
+short_name = "utf16_code_unit_conversion"
+invariant = "For every char index `i` in a rope, `utf16_cu_to_char(char_to_utf16_cu(i)) == i`."
+how_triggered = "The buggy import aliases `str_indices::utf16::from_byte_idx` as `utf16_code_unit_to_char_idx`, so the function that should map a UTF-16 code unit count back to a char index actually maps a *byte index* to a char index. For any text with non-ASCII chars, the round trip diverges starting at char index 1. The fix uses `str_indices::utf16::to_char_idx`."
+
+[[tasks.tasks]]
+property = "Utf16CharRoundtrip"
 witnesses = [
-    "witness_rope_builder_default_build_case_hello",
+  { test_fn = "witness_utf16_char_roundtrip_case_latin1" },
 ]
-frameworks = ["proptest", "quickcheck", "crabcheck", "hegel"]
+
+[[tasks]]
+mutations = ["rope_builder_default_empty_stack_dfcac8b_1"]
+
+[tasks.source]
+repo = "https://github.com/cessen/ropey"
+commits = ["dfcac8b19ee571a2a399e189c12b2a10663ce464"]
+commit_subjects = ["Fix broken Default impl for RopeBuilder"]
+summary = "`RopeBuilder` used `#[derive(Default)]`, producing a value with an empty `stack` — but every append/finish path assumes `RopeBuilder::new()`'s single initial empty-leaf node. `RopeBuilder::default().append(..)` panicked at `self.stack.pop().unwrap()`. The fix replaces the derive with a hand-written impl that delegates to `Self::new()`."
+
+[tasks.injection]
+kind = "patch"
 files = ["src/rope_builder.rs"]
+locations = [{ file = "src/rope_builder.rs" }]
+patch = "patches/rope_builder_default_empty_stack_dfcac8b_1.patch"
 
-[[variant]]
-name = "slice_crlf_split_end_info_8699de0_1"
-property = "slice_crlf_len_lines"
-injection = "patch"
-patch = "patches/slice_crlf_split_end_info_8699de0_1.patch"
-source_commit = "8699de0908b3853431e2dcac6eb70faad7f326d0"
+[tasks.bug]
+short_name = "rope_builder_default_empty_stack"
+invariant = "`RopeBuilder::default()` is functionally equivalent to `RopeBuilder::new()` — appending text and finishing must not panic and must produce a rope whose contents equal the appended text."
+how_triggered = "The buggy `#[derive(Default)]` constructs `RopeBuilder { stack: SmallVec::new(), .. }` with an empty stack. `RopeBuilder::new()` instead pushes a single empty-leaf node onto the stack; every `append` / `finish` path relies on that initial leaf. With the derived default, `append_leaf_node` panics at `self.stack.pop().unwrap()`, and `finish` underflows on `self.stack.len() - 1`. The fix replaces the derive with a hand-written `impl Default` delegating to `Self::new()`."
+
+[[tasks.tasks]]
+property = "RopeBuilderDefaultBuild"
 witnesses = [
-    "witness_slice_crlf_len_lines_case_mid_crlf",
+  { test_fn = "witness_rope_builder_default_build_case_hello" },
 ]
-frameworks = ["proptest", "quickcheck", "crabcheck", "hegel"]
+
+[[tasks]]
+mutations = ["slice_crlf_split_end_info_8699de0_1"]
+
+[tasks.source]
+repo = "https://github.com/cessen/ropey"
+commits = ["8699de0908b3853431e2dcac6eb70faad7f326d0"]
+commit_subjects = ["Fix bug when a slice splits a CRLF pair"]
+summary = "`RopeSlice::new_with_range` computed `end_info` without detecting when the slice ended between a `\\r` and its `\\n`. Inside the sliced view the orphaned `\\r` becomes a real line break, but the cached `char_to_text_info` count from the parent tree didn't reflect that. The fix adds `if node.is_crlf_split(n_end) { info.line_breaks += 1; }`."
+
+[tasks.injection]
+kind = "patch"
 files = ["src/slice.rs"]
+locations = [{ file = "src/slice.rs" }]
+patch = "patches/slice_crlf_split_end_info_8699de0_1.patch"
+
+[tasks.bug]
+short_name = "slice_crlf_split_end_info"
+invariant = "For every char index `i` in a rope, `rope.slice(..i).len_lines()` matches the slow per-byte line count of `&text[..byte_idx(i)]` — including when `i` lands between a `\\r` and a `\\n`."
+how_triggered = "The buggy `end_info` computes `node.char_to_text_info(n_end)` without detecting the slice-boundary CRLF split. When the slice cuts between `\\r` and `\\n`, the terminating `\\r` of the slice no longer has a following `\\n` inside the slice; the correct line-break count is one higher than what `char_to_text_info` returns from the unsliced tree. The fix adds `if node.is_crlf_split(n_end) { info.line_breaks += 1; }`. The property forces an internal-node rope layout (via `rope_from_str_chunked` with small chunks) so the slice reaches the `RSEnum::Full` branch where the bug lives; a single-leaf rope bypasses it through the `Node::Leaf` early-return."
+
+[[tasks.tasks]]
+property = "SliceCrlfLenLines"
+witnesses = [
+  { test_fn = "witness_slice_crlf_len_lines_case_mid_crlf" },
+]

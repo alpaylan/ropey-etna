@@ -4,4 +4,7 @@ Cargo.lock
 perf.data*
 cachegrind.out*
 /.hegel/
+.marauders/
+.migration-cache/
+etna.log
 progress.jsonl
