@@ -29,8 +29,8 @@ smallvec = "1.0.0"
 str_indices = { version = "0.4", default-features = false }
 # ETNA framework dependencies — linked by src/bin/etna.rs.
 proptest = "1.11.0"
-quickcheck = { path = "/Users/akeles/Programming/projects/PbtBenchmark/quickcheck", features = ["etna"] }
-crabcheck = { path = "/Users/akeles/Programming/projects/PbtBenchmark/crabcheck" }
+quickcheck = { git = "https://github.com/alpaylan/quickcheck.git", branch = "master", features = ["etna"] }
+crabcheck = { git = "https://github.com/alpaylan/crabcheck.git", branch = "main" }
 hegeltest = "0.3.7"
 rand = "0.9"
 fnv = "1.0.7"

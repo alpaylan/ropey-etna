@@ -1,5 +1,6 @@
 name = "ropey"
 language = "rust"
+strategies = ["proptest", "quickcheck", "crabcheck", "hegel"]
 crate = "ropey"
 base_commit = "bd36566023fc12ff70d5a3e81defa942ab8d6f72"
 
